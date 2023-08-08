@@ -317,4 +317,3 @@ if __name__ == '__main__':
     ex.run()
 
 
-# python test_egtea.py  --save_name rebuttal_fix_check  --num_queries 12 --num_frames 16   --num_clips 10 --video_dir '/scratch/shared/beegfs/htd/DATA/GTEA/cropped_clips'   --anno_dir '../data/EGTEA' --resume /users/czhang/work/EgoVLP/log-post-ddl/detr+egonce_bs128_lr3e-05_nq12_morepos_avglog_wordcontrast_vnmask_simmask06_strictmask_0_newboxes_resumebest_check/model/candidate1.pth.tar

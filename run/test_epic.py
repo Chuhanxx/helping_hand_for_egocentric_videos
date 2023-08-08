@@ -310,13 +310,13 @@ if __name__ == '__main__':
                       help='name of the file for annotation files')
     args.add_argument('--backbone', default='LaviLa', type=str,
                       help='the backbone to use')
-    args.add_argument('--num_queries', default=8, type=int,
+    args.add_argument('--num_queries', default=12, type=int,
                       help='number of queries in the cross transformer')
     args.add_argument('--lavila_weights_path', default='/users/czhang/work/model/clip_openai_timesformer_large.narrator_rephraser.ep_0003.md5sum_c89337.pth', type=str,
                       help='path to the pretrained weights of the lavila backbone')
     args.add_argument('--method', default='xattn', type=str)
     args.add_argument('--visualize', action='store_true')
-    args.add_argument('--num_frames', default=4, type=int)
+    args.add_argument('--num_frames', default=16, type=int)
 
     config = ConfigParser(args, test=True, eval_mode='epic')
 
@@ -330,4 +330,3 @@ if __name__ == '__main__':
     ex.run()
 
 
-#  python test_epic.py  --data_dir '/users/czhang/work/EK100_256p' --meta_dir '../data/epic_kitchens' --num_queries 12 --num_frames 16  --resume /users/czhang/work/EgoVLP/log-post-ddl/detr+egonce_bs128_lr3e-05_nq12_morepos_avglog_wordcontrast_vnmask_simmask06_strictmask_0_newboxes_resumebest_check/model/candidate1.pth.tar

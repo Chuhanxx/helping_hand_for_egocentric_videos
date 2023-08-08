@@ -347,4 +347,3 @@ if __name__ == '__main__':
     main(args)
 
 
-# python test_EgoMCQ.py   --data_dir '/scratch/shared/beegfs/htd/DATA/ego4d/'  --meta_dir '../data/EgoClip' --resume /users/czhang/work/EgoVLP/log-post-ddl/detr+egonce_bs128_lr3e-05_nq12_morepos_avglog_wordcontrast_vnmask_simmask06_strictmask_0_newboxes_resumebest_check/model/candidate1.pth.tar  

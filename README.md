@@ -42,7 +42,7 @@ we extract the features from pretrained model using code [here](https://github.c
 ## 👁 Visualization of Grounding Results
 *Please note the objective of the paper is to do vision-language understanding, and the model was trained on grounding as an auxiliary tasks with noisy boxes as supervision, it may not predict perfect grounding results. 
 
-We extracted hand and object boxes ([download](https://www.robots.ox.ac.uk/~czhang/helping-hand-ckpt-nq4.pth.tar)) on EgoClip training set using our model with 4 object queries ([model_weights]()).
+We extracted hand and object boxes ([download](https://www.robots.ox.ac.uk/~czhang/predicted_grounding.pth.tar)) on EgoClip using our model with 4 object queries ([model_weights](https://www.robots.ox.ac.uk/~czhang/helping-hand-ckpt-nq4.pth.tar)).
 The file has information of video and the boxes in it as:
 ```
 Dict{

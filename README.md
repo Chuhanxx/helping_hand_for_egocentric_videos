@@ -1,8 +1,8 @@
-# Helping Hands: An Object-Aware Ego-Centric Video Recognition Model
+# [ICCV2023] Helping Hands: An Object-Aware Ego-Centric Video Recognition Model
 
-[**Helping Hands: An Object-Aware Ego-Centric Video Recognition Model**]()                                     
+[**Helping Hands: An Object-Aware Ego-Centric Video Recognition Model**](https://arxiv.org/pdf/2308.07918.pdf)                                     
 Chuhan Zhang, Ankush Gupta, Andrew Zisserman         
-ICCV 2023 | [arxiv]() | [bibtex]() 
+ICCV 2023 | [arxiv](https://arxiv.org/pdf/2308.07918.pdf) | [bibtex](https://www.robots.ox.ac.uk/~czhang/helpinghand-bibtex.txt)) 
 
 We introduce an object-aware decoder for improving the performance of spatio-temporal representations on ego-centric videos. The key idea is to enhance object-awareness during training by tasking the model to predict hand positions, object positions, and the semantic label of the objects
 using paired captions when available. At inference time the model only requires RGB frames as inputs, and is able to track and ground objects (although it has not been trained explicitly for this).
@@ -58,9 +58,21 @@ To visualize the boxes on RGB frames, please download the boxes and put them int
 ```
 cd demo
 python visualize_box.py --video_dir /path/to/egoclip/videos --anno_file /path/to/boxes
-
 ```
-![viz](imgs/grounding_fig.png)
 
+## 🙏  Acknowledgements
 
+This code is based on [EgoVLP](https://github.com/showlab/EgoVLP) and [LaViLa](https://github.com/facebookresearch/LaViLa), If you use this code, please consider citing them. 
 
+## 📰 Citation
+```
+@inproceedings{zhanghelpinghand,
+  title={Helping Hands: An Object-Aware Ego-Centric Video Recognition Model},
+  author={Chuhan Zhang and Ankush Gputa and Andrew Zisserman},
+  booktitle={International Conference on Computer Vision (ICCV)},
+  year={2023}
+}
+```
+
+## 📩 Contact
+If you have any question, please contact czhang@robots.ox.ac.uk .

@@ -98,7 +98,6 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
 
     all_nouns = torch.load(os.path.join(args.meta_dir,'noun_dict_lavila_embeds.pth'))
     for data_idx, data in enumerate(loader):
-       
         data_time.update(time.time() - end)
         # ======================== Aggregate Input =====================================
         data = prepare_data(data, device, tokenizer)
@@ -109,6 +108,7 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
         with torch.autocast(device_type='cuda', dtype=torch.float16):
             with torch.no_grad():
                 out = backbone(data['video'], data['text'].to(device),return_feature_map=True,  use_checkpoint=True)
+            
             video_feature_map = out['image_feature_map'] # before projection 
             text_feature_map = out['text_feature_map'] # before projection 
             text_embeds = out['text_embed'] # after projection 
@@ -119,10 +119,10 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
             model_out, hs, _, _ = model(video_grid,use_checkpoint=False)
             sentence_len =  data['text'].argmax(dim=-1) 
             N_rephrased = sentence_len.shape[0]
+    
             # Freature projection 
             text_embeds = model.txt_proj(text_feature_map[torch.arange(N_rephrased),sentence_len,:])
             video_embeds = model.obj_proj(hs[-1, :])[:,-1,...]
-
             video_embeds = allgather(video_embeds.contiguous(), args.world_size, args)
             text_embeds = allgather(text_embeds.contiguous(), args.world_size, args)
             text_tokens = allgather(data['text'].to(device), args.world_size, args)
@@ -130,6 +130,7 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
             # Initialize the loss dictionary.
             loss_dict = {}
             loss_dict['total_loss'] = 0
+
             # ======================== Modified EgoNCE Loss ================================
             text_embeds = allgather(text_embeds, args.world_size, args)
             video_level_similarity = sim_matrix(text_embeds, video_embeds)
@@ -139,7 +140,6 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
             noun_vec = allgather(data['noun_vec'], args.world_size, args)
             sim_v = sim_matrix(verb_vec, verb_vec)
             sim_n = sim_matrix(noun_vec, noun_vec)        
-
             # pad mask for rephrased texts, 1 for non-padded , 0 for padded.
             rephrased_pad_mask = ((text_tokens !=0).sum(-1)!=2).float()[:,None]
             rephrased_pad_mask = rephrased_pad_mask.repeat(1,video_embeds.shape[0])
@@ -149,7 +149,6 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
             loss_dict['total_loss'] += nce_loss
             loss_dict.update({
                         'nce-loss': nce_loss.detach()})
-            
             # compute accuracy
             # Use the first text embeds to compute acc.
             video_level_similarity = video_level_similarity.view(B*args.world_size,
@@ -274,14 +273,6 @@ def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, gra
 
 @torch.no_grad()
 def evaluate(loader, model, backbone, tokenizer, device, epoch, args,):
-    """
-    Validate after training an epoch
-
-    :return: A log that contains information about validation
-
-    Note:
-        The validation metrics in log must have the key 'val_metrics'.
-    """
     model.eval()
     total_val_loss = [0] * len(loader)
 
@@ -522,7 +513,6 @@ def main(args):
                                         neg_param=False,
                                         tsfm_params= tsfm_params,
                                         )
-    
 
     backbone.to(device)
     ### optimizer ###

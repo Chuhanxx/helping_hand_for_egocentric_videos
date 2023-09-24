@@ -20,7 +20,7 @@ from utils.train_utils import optim_policy, _valid_all_gather, verbose, format_n
 from model.loss import EgoNCE, WordContrastiveLoss
 from model.metric import sim_matrix
 from model.LaviLa import CLIP_OPENAI_TIMESFORMER_LARGE
-from model.metric import egomcq_accuracy_metrics
+from model.metric import egomcq_accuracy_metrics, compute_tv_accuracy
 from model.tfm_decoder import ObjDecoder, Cross_Attention
 from model.box_utils import build_matcher, SetCriterion, compute_box_loss
 
@@ -74,23 +74,6 @@ def prepare_data(data, device, tokenizer):
     data['text_str'] = data['text']
     data['text'] = tokenizer(data['text'])
     return data
-
-def compute_tv_accuracy(similarity, text_embeds, sim_v, sim_n, num_samples, device):
-    tv_argmax = torch.argmax(similarity, dim=-1)
-    vt_argmax = torch.argmax(similarity, dim=0)
-    tv_sim, vt_sim = similarity, similarity.t()
-    same_neg_mask = sim_matrix(text_embeds[::5],text_embeds[::5]) > 0.99
-
-    eye = torch.eye(num_samples, device = device)
-    same_neg_mask[np.arange(num_samples),np.arange(num_samples)] = 0
-    pos_mask = ((sim_v * sim_n) + eye ) + same_neg_mask
-    pos_mask = (pos_mask>0).float()
-    vt_argmax_onehot = torch.zeros_like(vt_sim).scatter_(0, vt_argmax.unsqueeze(0), 1.)
-    acc_vt = ((vt_argmax_onehot * pos_mask).sum(0) > 0).float().mean()
-    tv_argmax_onehot = torch.zeros_like(tv_sim).scatter_(-1, tv_argmax.unsqueeze(-1), 1.)
-    acc_tv = ((tv_argmax_onehot * pos_mask).sum(-1) > 0).float().mean()
-    return acc_vt, acc_tv
-
 
 
 def train_and_eval(loader,val_loader, model, backbone, tokenizer, optimizer, grad_scaler, device, epoch, args, best_acc):

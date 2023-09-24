@@ -220,7 +220,7 @@ def evaluate_ek(data_loader, model, backbone, tokenizer,relevancy, indexes, args
             if args.method == 'xattn':
                 sen_lens =  data['text'].argmax(dim=-1)
                 text_embed =  model.txt_proj(text_feature_map[0,sen_lens])
-                detr_out, hs,_, _ = model(video_grid)
+                model_out, hs,_, _ = model(video_grid)
                 vid_embed = model.obj_proj(hs[-1, :])[:,-1,...]
             else:
                 vid_embed = vid_embed[:,0,:]
@@ -230,7 +230,7 @@ def evaluate_ek(data_loader, model, backbone, tokenizer,relevancy, indexes, args
             text_embed_arr.append(text_embed.cpu().detach())
 
             if args.visualize and argmax[i]>100:
-                vis_boxes = detr_out["pred_boxes"].view(1,4,-1,4)
+                vis_boxes = model_out["pred_boxes"].view(1,4,-1,4)
                 vis_hand_imgs, vis_obj_imgs = [],[]
 
                 for f_i in range(4):

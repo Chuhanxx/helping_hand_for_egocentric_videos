@@ -239,7 +239,7 @@ def evaluate_egtea(data_loader, model, backbone, tokenizer, args, label_list, or
             if args.method == 'xattn':
                 grid_side = int(((video_feature_map.shape[1])/args.num_frames)**0.5)
                 video_grid = rearrange(video_feature_map[:, 1:, :], 'b (t h w) c -> b t (h w) c', t=args.num_frames, h=grid_side, w=grid_side)
-                detr_out, hs,_,_ = model(video_grid)
+                model_out, hs,_,_ = model(video_grid)
                 vid_embed = model.obj_proj(hs[-1, :])[:,-1,...]
 
             logit = sim_matrix(vid_embed.detach().cpu(), text_embeds)

@@ -14,9 +14,11 @@ using paired captions when available. At inference time the model only requires 
 - **Annotations**: We pack all the annotations (both original and post-processed) we need for downloading [[Download]](https://www.robots.ox.ac.uk/~czhang/metadata.zip). Please download it and put it in the `meta_dir`
 - **Pretrained Model weights**: The model has two parts: 1. frozen encoders from LaviLa [[Download]](https://dl.fbaipublicfiles.com/lavila/checkpoints/dual_encoders/ego4d/clip_openai_timesformer_large.narrator_rephraser.ep_0003.md5sum_c89337.pth) 2. Our module trained on top of the encoders [[Download]](https://www.robots.ox.ac.uk/~czhang/helping-hand-ckpt.pth.tar)
 - Hand-Object boxes: We extracted hand-object boxes from 640p images in EgoClip using [100DOH](https://github.com/ddshan/hand_detector.d2) and use them for supervision. 
-  
+
 ## 🏋️‍️ Pretraining
-Coming soon
+```
+python train.py   --backbone LaviLa  --num_queries 12  --name_prefix /work/czhang/EgoVLP/github/ --data_dir /path/to/ego4d/videos  --meta_dir ./data/EgoClip
+```
 
 
 ## 🔑 Zero-shot evaluation

@@ -1,11 +1,10 @@
 from torchvision import transforms
-from torchvision.transforms._transforms_video import RandomCropVideo, RandomResizedCropVideo,CenterCropVideo, NormalizeVideo,ToTensorVideo,RandomHorizontalFlipVideo
+from torchvision.transforms._transforms_video import RandomResizedCropVideo, NormalizeVideo,RandomHorizontalFlipVideo
 from utils.box_ops import box_cxcywh_to_xyxy
 import torch
 import  torchvision.transforms.functional as F
 from utils.utils import img_denorm
-import torchvision
-import random 
+import torch.nn as nn
 
 def init_transform_dict(input_res=224,
                         center_crop=256,
@@ -43,26 +42,30 @@ def init_video_transform_dict(input_res=224,
                         norm_mean=(0.485, 0.456, 0.406),
                         norm_std=(0.229, 0.224, 0.225),
                         force_centercrop=False,
-                        resize_wo_crop = True):
+                        resize_wo_crop = True,
+                        normalize=True):
     print('Video Transform is used!')
-    normalize = NormalizeVideo(mean=norm_mean, std=norm_std)
+    if normalize:
+        norm = NormalizeVideo(mean=norm_mean, std=norm_std)
+    else:
+        norm = nn.Identity()
     if resize_wo_crop:
         val_transform = transforms.Compose([
             transforms.Resize((input_res,input_res)),
-            normalize,])
+            norm,])
     else:
         val_transform =  transforms.Compose([
             transforms.Resize(center_crop),
             transforms.CenterCrop(center_crop),
             transforms.Resize(input_res),
-            normalize,])
+            norm,])
 
     tsfm_dict = {
         'train': transforms.Compose([
             RandomResizedCropVideo(input_res, scale=randcrop_scale),
             RandomHorizontalFlipVideo(),
             transforms.ColorJitter(brightness=color_jitter[0], saturation=color_jitter[1], hue=color_jitter[2]),
-            normalize,
+            norm,
         ]),
         'val': val_transform,
         'test': val_transform,

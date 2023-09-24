@@ -70,7 +70,7 @@ def evaluate_egomcq(loader, model, backbone, tokenizer, device, args,):
                 video_grid = rearrange(video_feature_map[:, 1:, :], 'b (t h w) c -> b t (h w) c', t=4, h=grid_side, w=grid_side)
                 sen_lens =  data['text'].argmax(dim=-1)
                 text_embeds =  model.txt_proj(text_feature_map[0,sen_lens])
-                detr_out, hs,_, _ = model(video_grid)
+                model_out, hs,_, _ = model(video_grid)
             if args.method == 'xattn':
                 video_embeds = model.obj_proj(hs[-1, :])[:,-1,...]
             else:

@@ -32,6 +32,7 @@ class EgoClip_EgoMCQ(TextVideoDataset):
         self.noun_dim = 582  # num of nouns of ego4d taxonomy dictionary
         self.verb_dim = 118  # num of verbs of ego4d taxonomy dictionary
         self.handobj_dir = os.path.join(self.data_dir,'hand_object_clip_per_video_4f_lavila_narrator_640')
+        self.data_dir  = os.path.join(self.data_dir,f"videos_256_chunked")
         path_narration_noun = os.path.join(self.meta_dir,'narration_noun_taxonomy.csv')
         self.rephrased_txts =  torch.load(os.path.join(self.meta_dir,'lavila_rephrased.pth'))
 
@@ -45,12 +46,8 @@ class EgoClip_EgoMCQ(TextVideoDataset):
                 self.metadata = self.metadata.iloc[self.subsample[0]:self.subsample[1]]
             self.frame_sample = self.video_params.get('frame_sample', 'uniform')
 
-            if self.neg_param and self.split == 'train':
-                self.metadata['chunk_id'] = self.metadata['narration_time'] // self.neg_param
-                self.metadata['segment_id'] = self.metadata['video_uid'] + '_' + (self.metadata['chunk_id']//self.chunk_sec).astype(str)
-                self.metadata_by_segment_id = dict(tuple(self.metadata.groupby('segment_id')))
-
-            self.metadata['chunk_id'] = self.metadata['chunk_id'].astype(str)
+            self.metadata['segment_id'] = self.metadata['video_uid'] + '_' + (self.metadata['narration_time']//self.chunk_sec).astype(str)
+            self.metadata_by_segment_id = dict(tuple(self.metadata.groupby('segment_id')))
 
         elif self.split in ['val', 'test']:
             self.frame_sample = 'uniform'
@@ -85,7 +82,6 @@ class EgoClip_EgoMCQ(TextVideoDataset):
         hand_boxes = torch.zeros(4,2,4)
         obj_boxes = torch.zeros(4,2,4)       
         image_size = (0, 0)
-
 
         video_name = sample['video_uid']
         clip_index = str(int(clip_start//self.chunk_sec))
@@ -126,7 +122,6 @@ class EgoClip_EgoMCQ(TextVideoDataset):
     def _get_video_frames(self, video_fp, video_sec, bound_sec, boxes=None, pred=False):
         video_loading = self.video_params.get('loading', 'strict')
         try:
-
             if os.path.isfile(video_fp[0]) and os.path.isfile(video_fp[1]):
                 imgs, seconds = self.video_reader(video_fp[0], video_sec[0], end_second=video_sec[1], 
                                             clip_length=self.video_params['num_frames'])
@@ -142,15 +137,14 @@ class EgoClip_EgoMCQ(TextVideoDataset):
                 imgs = Image.new('RGB', (self.video_params['input_res'], self.video_params['input_res']), (0, 0, 0))
                 imgs = transforms.ToTensor()(imgs).unsqueeze(0).to(torch.float32)
                 valid = 0
+                seconds = [0,0,0,0]
+        # crop the images wrt boxes (random crop the margin without boxes), deactivated by default
         if boxes is not None and boxes.sum()!=0:
-            imgs,crop_params = custom_img_crop(imgs,boxes*256/self.video_res,pred=pred)
-            crop_params = crop_params*self.video_res/256
+            imgs,crop_params = custom_img_crop(imgs,boxes,pred=pred)
         else:
             crop_params = torch.tensor([0.,0.,0.,0.])
 
-        
         im_size = imgs.shape[2:]
-
         if self.transforms is not None:
             if self.video_params['num_frames'] > 1:
                 imgs = imgs.transpose(0, 1)  # [T, C, H, W] ---> [C, T, H, W]
@@ -162,8 +156,7 @@ class EgoClip_EgoMCQ(TextVideoDataset):
         final = torch.zeros([self.video_params['num_frames'], 3, self.video_params['input_res'],
                              self.video_params['input_res']])
         final[:imgs.shape[0]] = imgs
-
-        return final,im_size,crop_params,valid
+        return final, im_size, crop_params, valid, seconds
 
     def _get_caption(self, sample):
         noun_vec = torch.zeros(self.noun_dim)
@@ -251,7 +244,6 @@ class EgoClip_EgoMCQ(TextVideoDataset):
     
     def _get_train_item(self, item):
         self.counter+=1
-        
         item = item % len(self.metadata)
         sample = self.metadata.iloc[item]
         video_fp, video_sec, bound_sec = self._get_video_path(sample)
@@ -262,61 +254,43 @@ class EgoClip_EgoMCQ(TextVideoDataset):
 
         if self.video_params.get('disable', False):
             final = torch.zeros(1)
-            valid = 0
         else:
-            final,im_sz,crop_params,valid = self._get_video_frames(video_fp, video_sec, bound_sec, boxes=(box if self.crop_with_boxes else None))
+            final,im_sz,crop_params,_,seconds = self._get_video_frames(video_fp, video_sec, bound_sec, boxes=(box if self.crop_with_boxes else None))
         box = crop_boxes(box,crop_params,ori_im_sz=image_size,resize_target=224)
+        meta_arr = [sample.video_uid, sample.clip_start, sample.clip_end, seconds]
 
- 
-        meta_arr = {'raw_captions': caption, 'paths': video_fp, 'dataset': self.dataset_name}
-
-        # Scene-aware negative sampling
-        if self.neg_param:
-            # sample_neg = self.metadata[self.metadata.segment_id==sample.segment_id].sample(1).iloc[0]
-
-            sample_negs = self.metadata_by_segment_id[sample.segment_id]
+        # Scene-aware negative sampling as in EgoVLP paper
+        sample_negs = self.metadata_by_segment_id[sample.segment_id]
+        sample_neg = sample_negs.sample(1).iloc[0]
+        caption_neg, noun_vec_neg, verb_vec_neg = self._get_caption(sample_neg)
+        counter=0
+        # resample if hard negative is the same as positive
+        while sample_negs.shape[0]!=1 and  sample_neg['clip_start'] == sample['clip_start'] and counter <10:
             sample_neg = sample_negs.sample(1).iloc[0]
             caption_neg, noun_vec_neg, verb_vec_neg = self._get_caption(sample_neg)
-            counter=0
-            # resample if hard negative is the same as positive
-            while sample_negs.shape[0]!=1 and  sample_neg['clip_start'] == sample['clip_start'] and counter <10:
-                sample_neg = sample_negs.sample(1).iloc[0]
-                caption_neg, noun_vec_neg, verb_vec_neg = self._get_caption(sample_neg)
-                counter +=1
+            counter +=1
 
-            video_fp_neg, video_sec_neg, bound_sec_neg = self._get_video_path(sample_neg)
-            rephrased_caption_neg = self._get_rephrased_caption(sample_neg, video_sec_neg,caption_neg)
-            box_neg, image_size_neg = self.load_hand_object_box(sample_neg)
+        video_fp_neg, video_sec_neg, bound_sec_neg = self._get_video_path(sample_neg)
+        rephrased_caption_neg = self._get_rephrased_caption(sample_neg, video_sec_neg,caption_neg)
+        box_neg, image_size_neg = self.load_hand_object_box(sample_neg)
 
-            final_neg, im_sz_neg, crop_params_neg, valid  = self._get_video_frames(video_fp_neg, video_sec_neg, bound_sec_neg,  
-                                                                               boxes=(box_neg if self.crop_with_boxes else None))
-            box_neg = crop_boxes(box_neg,crop_params,ori_im_sz=image_size_neg,resize_target=224)
-            _, nouns_neg = self.extract_noun(sample_neg, caption_neg)
-        meta_arr_neg = {'raw_captions': caption_neg, 'paths': video_fp_neg, 'dataset': self.dataset_name}
+        final_neg, im_sz_neg, crop_params_neg, _ ,seconds_neg = self._get_video_frames(video_fp_neg, video_sec_neg, bound_sec_neg,  
+                                                                            boxes=(box_neg if self.crop_with_boxes else None))
+        box_neg = crop_boxes(box_neg,crop_params,ori_im_sz=image_size_neg,resize_target=224)
+        _, nouns_neg = self.extract_noun(sample_neg, caption_neg)
+        meta_arr_neg = [sample_neg.video_uid, sample_neg.clip_start, sample_neg.clip_end, seconds_neg]
 
-        if self.neg_param:
-            return {'video': final, 'text': caption,
-                    'video_neg': final_neg, 'text_neg': caption_neg,
-                    'meta': meta_arr, 'meta_neg': meta_arr_neg,
-                    'noun_vec': noun_vec, 'verb_vec': verb_vec, 'nouns': nouns,
-                    'noun_vec_neg': noun_vec_neg, 'verb_vec_neg': verb_vec_neg,'nouns_neg':nouns_neg,
-                    'boxes':box, 'boxes_neg': box_neg,
-                    'image_size': torch.tensor(im_sz), 'image_size_neg': torch.tensor(im_sz_neg),
-                    'crop_params': crop_params, 'crop_params_neg': crop_params_neg,
-                    'rephrased_text': rephrased_caption ,
-                    'rephrased_text_neg': rephrased_caption_neg,
-                    'data_item':item }
-
-        else:
-            return {'video': final, 'text': caption,
-                'meta': meta_arr,
-                'noun_vec': noun_vec, 'verb_vec': verb_vec,
-                'clip_start': torch.tensor(sample['clip_start']),
-                'clip_end': torch.tensor(sample['clip_end']),
-                'boxes':box, 'image_size': torch.tensor(im_sz),
-                'crop_params': crop_params,
-                'valid': valid,
-                'rephrased_text': rephrased_caption ,}
+        return {'video': final, 'text': caption,
+                'video_neg': final_neg, 'text_neg': caption_neg,
+                'meta': meta_arr, 'meta_neg': meta_arr_neg,
+                'noun_vec': noun_vec, 'noun_vec_neg': noun_vec_neg, 
+                'verb_vec': verb_vec,  'verb_vec_neg': verb_vec_neg,
+                'nouns': nouns, 'nouns_neg':nouns_neg,
+                'boxes':box, 'boxes_neg': box_neg,
+                'image_size': torch.tensor(im_sz), 'image_size_neg': torch.tensor(im_sz_neg),
+                'crop_params': crop_params, 'crop_params_neg': crop_params_neg,
+                'rephrased_text': rephrased_caption,'rephrased_text_neg': rephrased_caption_neg,
+                'data_item':item }
 
 
     def _get_val_item(self, item):
@@ -347,7 +321,7 @@ class EgoClip_EgoMCQ(TextVideoDataset):
             videoIds.append(sampleOptions[str(id)]['video_uid'] + f'/{int(chunk_id)}.mp4')
             clipsStarts.append(sampleOptions[str(id)]['clip_start'])
             clipEnds.append(sampleOptions[str(id)]['clip_end'])
-            imgs,im_sz, _, _ = self._get_video_frames(video_fp, video_sec, bound_sec)            
+            imgs,im_sz, _, _, _ = self._get_video_frames(video_fp, video_sec, bound_sec)            
             videoOptions[id] = imgs
             imszs.append(torch.tensor(im_sz))
 
@@ -414,7 +388,6 @@ if __name__ == "__main__":
         tsfms=init_video_transform_dict()['test'],
         reader='cv2_egoclip',
         split='train',
-        neg_param=60
     )
     dataset = EgoClip_EgoMCQ(**kwargs)
     for i in range(100):

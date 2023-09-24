@@ -93,7 +93,7 @@ class HungarianMatcher(nn.Module):
 
 
 def build_matcher(args):
-    return HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
+    return HungarianMatcher(cost_class=1, cost_bbox=5, cost_giou=2)
 
 
 class SetCriterion(nn.Module):
@@ -116,7 +116,7 @@ class SetCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.eos_coef = eos_coef
         self.losses = losses
-        empty_weight = torch.ones(self.num_classes + 1)
+        empty_weight = torch.ones(num_classes + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
 
@@ -140,7 +140,7 @@ class SetCriterion(nn.Module):
 
 
     @torch.no_grad()
-    def loss_cardinality(self, outputs, targets, indices, num_boxes):
+    def loss_cardinality(self, outputs, targets, indices, num_boxes, box_type):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
@@ -150,10 +150,10 @@ class SetCriterion(nn.Module):
         # Count the number of predictions that are NOT "no-object" (which is the last class)
         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
-        losses = {'cardinality_error': card_err}
+        losses = {f'cardinality_error_{box_type}': card_err}
         return losses
 
-    def loss_boxes(self, outputs, targets, indices, num_boxes):
+    def loss_boxes(self, outputs, targets, indices, num_boxes, box_type):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
@@ -164,12 +164,12 @@ class SetCriterion(nn.Module):
         target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
         losses = {}
-        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+        losses[f'loss_bbox_{box_type}'] = loss_bbox.sum() / num_boxes
 
         loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
             box_ops.box_cxcywh_to_xyxy(target_boxes)))
-        losses['loss_giou'] = loss_giou.sum() / num_boxes
+        losses[f'loss_giou_{box_type}'] = loss_giou.sum() / num_boxes
         return losses
 
     def find_matched_summary_v(self, indices, num_frames=4):
@@ -183,35 +183,6 @@ class SetCriterion(nn.Module):
         return matched_obj_inds
 
 
-    def loss_masks(self, outputs, targets, indices, num_boxes):
-        """Compute the losses related to the masks: the focal loss and the dice loss.
-           targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
-        """
-        assert "pred_masks" in outputs
-
-        src_idx = self._get_src_permutation_idx(indices)
-        tgt_idx = self._get_tgt_permutation_idx(indices)
-        src_masks = outputs["pred_masks"]
-        src_masks = src_masks[src_idx]
-        masks = [t["masks"] for t in targets]
-        # TODO use valid to mask invalid areas due to padding in loss
-        target_masks, valid = nested_tensor_from_tensor_list(masks).decompose()
-        target_masks = target_masks.to(src_masks)
-        target_masks = target_masks[tgt_idx]
-
-        # upsample predictions to the target size
-        src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
-                                mode="bilinear", align_corners=False)
-        src_masks = src_masks[:, 0].flatten(1)
-
-        target_masks = target_masks.flatten(1)
-        target_masks = target_masks.view(src_masks.shape)
-        losses = {
-            "loss_mask": sigmoid_focal_loss(src_masks, target_masks, num_boxes),
-            "loss_dice": dice_loss(src_masks, target_masks, num_boxes),
-        }
-        return losses
-
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
@@ -224,17 +195,15 @@ class SetCriterion(nn.Module):
         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
         return batch_idx, tgt_idx
 
-    def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
+    def get_loss(self, loss, outputs, targets, indices, num_boxes, box_type, **kwargs):
         loss_map = {
-            'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
-            'masks': self.loss_masks
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
+        return loss_map[loss](outputs, targets, indices, num_boxes, box_type, **kwargs)
 
-    def forward(self, outputs, targets, exclude_class=False):
+    def forward(self, outputs, targets, box_type, exclude_class=False):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
@@ -255,20 +224,14 @@ class SetCriterion(nn.Module):
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices_last, num_boxes))
+            losses.update(self.get_loss(loss, outputs, targets, indices_last, num_boxes, box_type))
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets, exclude_class=exclude_class)
                 for loss in self.losses:
-                    if loss == 'masks':
-                        # Intermediate masks losses are too costly to compute, we ignore them.
-                        continue
                     kwargs = {}
-                    if loss == 'labels':
-                        # Logging is enabled only for the last layer
-                        kwargs = {'log': False}
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
+                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, box_type, **kwargs)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
@@ -422,7 +385,6 @@ class NestedTensor(object):
         self.mask = mask
 
     def to(self, device):
-        # type: (Device) -> NestedTensor # noqa
         cast_tensor = self.tensors.to(device)
         mask = self.mask
         if mask is not None:
@@ -468,7 +430,6 @@ def _max_by_axis(the_list):
     return maxes
 
 
-
 def split_detr_out(detr_out,start=0, end=2):
     detr_out_copy = detr_out.copy()
     detr_out_copy['pred_boxes'] = detr_out['pred_boxes'][:,start:end,:]
@@ -481,7 +442,8 @@ def split_detr_out(detr_out,start=0, end=2):
     return detr_out_copy
         
         
-def compute_detr_loss(box_type,detr_out,target_boxes,target_classes,all_image_size,n_queries=10):
+def compute_box_loss( box_type, criterion, detr_out, target_boxes, 
+                      target_classes, all_image_size, n_queries=10):
     # box_type: all_boxes, hand_boxes ,obj_boxes
     targets = prepare_targets(target_boxes, target_classes, all_image_size, center_crop=False)
 
@@ -491,9 +453,9 @@ def compute_detr_loss(box_type,detr_out,target_boxes,target_classes,all_image_si
         detr_pred = split_detr_out(detr_out,start=2, end=n_queries)
     elif box_type == 'all_boxes':
         detr_pred = detr_out
-    detr_loss_dict, matched_indices = args.criterion(detr_pred, targets, exclude_class=True)
-    weight_dict = args.criterion.weight_dict
+    detr_loss_dict, matched_indices = criterion(detr_pred, targets, box_type, exclude_class=True)
+    weight_dict = criterion.weight_dict
     for k in detr_loss_dict.keys():
         if k in weight_dict:
             detr_loss_dict[k] *= weight_dict[k]
-    return detr_loss_dict,sum(v for k,v in detr_loss_dict.items() if k in weight_dict) / (len(weight_dict) / 3), matched_indices
+    return sum(v for k,v in detr_loss_dict.items() if k in weight_dict) / (len(weight_dict) / 3), matched_indices
